@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 
@@ -26,50 +26,63 @@ function buildMapBlocks(imageSrc, selectedColor, tolerance, heightScale, sampleS
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
+      try {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
 
-      const targetWidth = 220
-      const scale = Math.min(1, targetWidth / img.width)
-      const width = Math.max(1, Math.floor(img.width * scale))
-      const height = Math.max(1, Math.floor(img.height * scale))
+        if (!ctx) {
+          resolve([])
+          return
+        }
 
-      canvas.width = width
-      canvas.height = height
-      ctx.drawImage(img, 0, 0, width, height)
+        const targetWidth = 220
+        const scale = Math.min(1, targetWidth / img.width)
+        const width = Math.max(1, Math.floor(img.width * scale))
+        const height = Math.max(1, Math.floor(img.height * scale))
 
-      const { data } = ctx.getImageData(0, 0, width, height)
-      const blocks = []
+        canvas.width = width
+        canvas.height = height
+        ctx.drawImage(img, 0, 0, width, height)
 
-      for (let y = 0; y < height; y += sampleStep) {
-        for (let x = 0; x < width; x += sampleStep) {
-          const index = (y * width + x) * 4
-          const r = data[index]
-          const g = data[index + 1]
-          const b = data[index + 2]
-          const a = data[index + 3]
+        const { data } = ctx.getImageData(0, 0, width, height)
+        const blocks = []
 
-          if (a < 10) continue
+        for (let y = 0; y < height; y += sampleStep) {
+          for (let x = 0; x < width; x += sampleStep) {
+            const index = (y * width + x) * 4
+            const r = data[index]
+            const g = data[index + 1]
+            const b = data[index + 2]
+            const a = data[index + 3]
 
-          const pixelColor = [r, g, b]
-          const distance = colorDistance(pixelColor, selectedColor)
+            if (a < 10) continue
 
-          if (distance <= tolerance) {
-            const worldX = (x - width / 2) * 0.75
-            const worldZ = -(y - height / 2) * 0.75
-            const blockHeight = 0.6 + Math.min(10, (tolerance - distance + 12) / 10) * heightScale
+            const pixelColor = [r, g, b]
+            const distance = colorDistance(pixelColor, selectedColor)
 
-            blocks.push({
-              x: worldX,
-              y: 0,
-              z: worldZ,
-              height: blockHeight,
-            })
+            if (distance <= tolerance) {
+              const worldX = (x - width / 2) * 0.75
+              const worldZ = -(y - height / 2) * 0.75
+              const blockHeight = 0.6 + Math.min(10, (tolerance - distance + 12) / 10) * heightScale
+
+              blocks.push({
+                x: worldX,
+                y: 0,
+                z: worldZ,
+                height: blockHeight,
+              })
+            }
           }
         }
-      }
 
-      resolve(blocks)
+        resolve(blocks)
+      } catch (error) {
+        resolve([])
+      }
+    }
+
+    img.onerror = () => {
+      resolve([])
     }
 
     img.src = imageSrc
@@ -132,6 +145,7 @@ function HologramScene({ imageSrc, selectedColor, tolerance, heightScale, autoRo
 
   return (
     <>
+      <color attach="background" args={['#020817']} />
       <ambientLight intensity={1.2} />
       <hemisphereLight args={['#dbeafe', '#020817', 1.2]} />
       <directionalLight position={[40, 50, 20]} intensity={1.6} castShadow />
@@ -140,10 +154,7 @@ function HologramScene({ imageSrc, selectedColor, tolerance, heightScale, autoRo
       <Floor />
 
       {blocks.length > 0 && (
-        <Blocks
-          blocks={blocks}
-          color={rgbToHex(selectedColor)}
-        />
+        <Blocks blocks={blocks} color={rgbToHex(selectedColor)} />
       )}
 
       <OrbitControls
@@ -237,20 +248,28 @@ export default function App() {
           />
           Auto rotate
         </label>
+
+        {!imageSrc && (
+          <div className="note">Upload an image to generate the 3D map.</div>
+        )}
       </div>
 
       <div className="canvas-wrap">
         <Canvas
           shadows
+          dpr={[1, 2]}
+          style={{ width: '100%', height: '100%', display: 'block' }}
           camera={{ position: [0, 70, 110], fov: 40 }}
         >
-          <HologramScene
-            imageSrc={imageSrc}
-            selectedColor={selectedColor}
-            tolerance={tolerance}
-            heightScale={heightScale}
-            autoRotate={autoRotate}
-          />
+          <Suspense fallback={null}>
+            <HologramScene
+              imageSrc={imageSrc}
+              selectedColor={selectedColor}
+              tolerance={tolerance}
+              heightScale={heightScale}
+              autoRotate={autoRotate}
+            />
+          </Suspense>
         </Canvas>
       </div>
     </div>
